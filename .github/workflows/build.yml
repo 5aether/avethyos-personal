@@ -45,7 +45,8 @@ jobs:
           python3 -B -m unittest discover -s tests -v
           python3 -B -c 'from scripts.upstream import configuration, check_customization; configuration(); check_customization()'
           python3 -B -c 'from scripts.upstream import api; api("actions/workflows/build.yml/runs?branch=main&per_page=1"); print("Public upstream release API is accessible.")'
-          bash -n customize.sh build.sh
+          bash -n customize.sh build.sh scripts/build-iso.sh
+          python3 -B -c 'import tomllib; tomllib.load(open("disk_config/iso.toml", "rb"))'
 
   build:
     needs: check
@@ -64,6 +65,11 @@ jobs:
       packages: write
     env:
       SIGNING_CONFIGURED: ${{ secrets.SIGNING_SECRET != '' }}
+    outputs:
+      published: ${{ steps.promote.outputs.published }}
+      image: ${{ steps.upstream.outputs.image }}
+      digest: ${{ steps.publish.outputs.digest }}
+      variant: ${{ steps.upstream.outputs.variant }}
     steps:
       - name: Fetch my files
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -147,6 +153,7 @@ jobs:
 
       - name: Make my validated image available for bootc upgrade
         if: steps.upstream.outputs.build == 'true'
+        id: promote
         env:
           IMAGE_REF: ${{ steps.upstream.outputs.image }}
           DIGEST: ${{ steps.publish.outputs.digest }}
@@ -157,6 +164,7 @@ jobs:
           actual=$(skopeo inspect --authfile "$REGISTRY_AUTH_FILE" --retry-times=3 \
             --format '{{.Digest}}' "docker://$IMAGE_REF:latest")
           [[ "$actual" == "$DIGEST" ]]
+          echo 'published=true' >> "$GITHUB_OUTPUT"
           printf 'Your image is ready: `%s:latest`\n' "$IMAGE_REF" >> "$GITHUB_STEP_SUMMARY"
           printf 'Switch once: `sudo bootc switch %s:latest`, then reboot.\n' "$IMAGE_REF" >> "$GITHUB_STEP_SUMMARY"
 
@@ -165,3 +173,84 @@ jobs:
         run: |
           rm -f "$RUNNER_TEMP/personal-registry-auth.json"
           rm -rf "$RUNNER_TEMP/personal-docker-auth"
+
+  iso:
+    name: Build my ${{ needs.build.outputs.variant }} installer ISO
+    needs: build
+    # Unchanged checks, failed builds and the official template produce no ISO.
+    if: needs.build.outputs.published == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE_REF: ${{ needs.build.outputs.image }}
+      DIGEST: ${{ needs.build.outputs.digest }}
+      VARIANT: ${{ needs.build.outputs.variant }}
+    steps:
+      - name: Fetch the exact customization that was published
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Maximize installer build space
+        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+        with:
+          remove-codeql: true
+
+      - name: Log in only for downloading my image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          REGISTRY_AUTH_FILE="$RUNNER_TEMP/personal-iso-auth.json"
+          echo "REGISTRY_AUTH_FILE=$REGISTRY_AUTH_FILE" >> "$GITHUB_ENV"
+          printf '%s' "$REGISTRY_TOKEN" | podman login --authfile "$REGISTRY_AUTH_FILE" \
+            --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+
+      - name: Verify the published digest before making an installer
+        id: installer
+        run: python3 -B scripts/iso.py
+
+      - name: Allow OSBuild stage capabilities
+        run: |
+          # The ephemeral Ubuntu runner's profile strips OSBuild's capabilities.
+          if [[ -f /etc/apparmor.d/bwrap-userns-restrict ]]; then
+            sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+          fi
+
+      - name: Build an installer with my exact image
+        env:
+          ISO_SOURCE_REF: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+        run: bash scripts/build-iso.sh "$IMAGE_REF" latest "$RUNNER_TEMP/personal-iso"
+
+      - name: Name the installer and create its checksum
+        env:
+          ARTIFACT: ${{ steps.installer.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/personal-iso"
+          test -s bootiso/install.iso
+          mv bootiso/install.iso "$ARTIFACT.iso"
+          sha256sum "$ARTIFACT.iso" > "$ARTIFACT.iso.sha256"
+          printf 'Download **%s** from this run’s **Artifacts**. It contains your ISO and SHA-256 checksum.\n' \
+            "$ARTIFACT" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Installer payload: `%s@%s`; future updates: `%s:latest`.\n' \
+            "$IMAGE_REF" "$DIGEST" "$IMAGE_REF" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload my installer ISO and checksum
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.installer.outputs.artifact }}
+          path: |
+            ${{ runner.temp }}/personal-iso/*.iso
+            ${{ runner.temp }}/personal-iso/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Remove installer download credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/personal-iso-auth.json"

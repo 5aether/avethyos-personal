@@ -1,5 +1,3 @@
-# Add Fedora package names here, one per line. Save the file to rebuild.
-# Lines starting with # and empty lines are ignored.
-# Example: remove the # below to install the package.
-# gimp
-# vlc
+kde-connect
+kdeconnectd
+neovim

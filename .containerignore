@@ -2,6 +2,7 @@
 .github
 scripts
 tests
+disk_config
 README.md
 LICENSE
 **/__pycache__
