@@ -1,0 +1,5 @@
+# Kernel settings managed by your image, applied on switch/upgrade and reboot.
+# Leave [] for the AvethyOS defaults. Separate arguments with commas.
+# Example: kargs = ["hid_apple.fnmode=2"]
+# Do not put root=, boot= or disk identifiers here.
+kargs = []

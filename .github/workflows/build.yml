@@ -1,0 +1,161 @@
+---
+name: Build my AvethyOS
+
+on:
+  # Fork or copy this repository. Your default branch publishes your image.
+  push:
+  pull_request:
+  schedule:
+    - cron: '*/5 * * * *'
+  repository_dispatch:
+    types: [avethyos-published]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild even when my files and the upstream image are unchanged
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-image
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check my customization files
+    if: github.event_name != 'schedule' || vars.POLL_UPSTREAM != 'false'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch my files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Validate configuration and release planning
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests -v
+          python3 -B -c 'from scripts.upstream import configuration, check_customization; configuration(); check_customization()'
+          bash -n customize.sh build.sh
+
+  build:
+    needs: check
+    # The template never builds in either official source repository.
+    # Only YOUR default branch publishes; there are no pull-request releases.
+    if: >-
+      github.repository != '5aether/avethyos' &&
+      github.repository != '5aether/avethyos-personal' &&
+      github.event_name != 'pull_request' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name != 'schedule' || vars.POLL_UPSTREAM != 'false')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SIGNING_CONFIGURED: ${{ secrets.SIGNING_SECRET != '' }}
+    steps:
+      - name: Fetch my files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Log in to my public or private image registry
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_AUTH_FILE: ${{ runner.temp }}/personal-registry-auth.json
+        run: |
+          set -euo pipefail
+          umask 077
+          echo "REGISTRY_AUTH_FILE=$REGISTRY_AUTH_FILE" >> "$GITHUB_ENV"
+          printf '%s' "$REGISTRY_TOKEN" | podman login --authfile "$REGISTRY_AUTH_FILE" \
+            --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+
+      - name: Require a successful main release and check for changes
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
+        run: python3 -B scripts/upstream.py
+
+      - name: Build only my selected variant
+        if: steps.upstream.outputs.build == 'true'
+        env:
+          BASE_IMAGE: ${{ steps.upstream.outputs.base }}
+          BASE_DIGEST: ${{ steps.upstream.outputs.digest }}
+          IMAGE_REF: ${{ steps.upstream.outputs.image }}
+          VARIANT: ${{ steps.upstream.outputs.variant }}
+        run: |
+          set -euo pipefail
+          podman build --authfile "$REGISTRY_AUTH_FILE" --pull=always --layers \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.base.name=$BASE_IMAGE" \
+            --label "org.opencontainers.image.base.digest=$BASE_DIGEST" \
+            --label "io.avethyos.upstream.digest=$BASE_DIGEST" \
+            --label "io.avethyos.variant=$VARIANT" \
+            --label containers.bootc=1 --tag "$IMAGE_REF:latest" .
+          podman run --rm --pull=never --network=none --entrypoint bootc \
+            "$IMAGE_REF:latest" container lint --fatal-warnings
+
+      - name: Upload my image
+        if: steps.upstream.outputs.build == 'true'
+        id: publish
+        env:
+          IMAGE_REF: ${{ steps.upstream.outputs.image }}
+        run: |
+          set -euo pipefail
+          podman push --authfile "$REGISTRY_AUTH_FILE" --retry=3 --format=oci \
+            --compression-format=zstd --compression-level=19 \
+            --digestfile "$RUNNER_TEMP/personal-image.digest" \
+            "$IMAGE_REF:latest" "$IMAGE_REF:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          digest=$(cat "$RUNNER_TEMP/personal-image.digest")
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Set up optional image signing
+        if: steps.upstream.outputs.build == 'true' && env.SIGNING_CONFIGURED == 'true'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.3'
+
+      - name: Sign with my optional private key
+        if: steps.upstream.outputs.build == 'true' && env.SIGNING_CONFIGURED == 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          IMAGE_REF: ${{ steps.upstream.outputs.image }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          DOCKER_CONFIG: ${{ runner.temp }}/personal-docker-auth
+        run: |
+          set -euo pipefail
+          mkdir -m 0700 "$DOCKER_CONFIG"
+          cp "$REGISTRY_AUTH_FILE" "$DOCKER_CONFIG/config.json"
+          cosign sign -y --new-bundle-format=false --use-signing-config=false \
+            --key env://COSIGN_PRIVATE_KEY "$IMAGE_REF@$DIGEST"
+
+      - name: Make my validated image available for bootc upgrade
+        if: steps.upstream.outputs.build == 'true'
+        env:
+          IMAGE_REF: ${{ steps.upstream.outputs.image }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          skopeo copy --authfile "$REGISTRY_AUTH_FILE" --preserve-digests --retry-times=3 \
+            "docker://$IMAGE_REF@$DIGEST" "docker://$IMAGE_REF:latest"
+          actual=$(skopeo inspect --authfile "$REGISTRY_AUTH_FILE" --retry-times=3 \
+            --format '{{.Digest}}' "docker://$IMAGE_REF:latest")
+          [[ "$actual" == "$DIGEST" ]]
+          printf 'Your image is ready: `%s:latest`\n' "$IMAGE_REF" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Switch once: `sudo bootc switch %s:latest`, then reboot.\n' "$IMAGE_REF" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove registry credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/personal-registry-auth.json"
+          rm -rf "$RUNNER_TEMP/personal-docker-auth"

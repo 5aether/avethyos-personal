@@ -1,0 +1,3 @@
+# Optional: remove inherited packages, one name per line.
+# Check what depends on a package before removing it.
+# Leave this empty to keep every AvethyOS feature.

@@ -1,0 +1,41 @@
+#!/bin/bash
+set -euo pipefail
+
+read_packages() {
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line%%#*}
+        # Trim spaces without evaluating package names as shell commands.
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -n "$line" ]] || continue
+        if [[ ! "$line" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+:-]*$ ]]; then
+            printf 'Invalid package name in %s: %s\n' "$1" "$line" >&2
+            return 1
+        fi
+        printf '%s\n' "$line"
+    done < "$1"
+}
+
+# Command substitution preserves the validation status; mapfile alone would not.
+added=$(read_packages /custom/packages.txt)
+removed=$(read_packages /custom/remove-packages.txt)
+packages=()
+remove=()
+[[ -z "$added" ]] || mapfile -t packages <<< "$added"
+[[ -z "$removed" ]] || mapfile -t remove <<< "$removed"
+if (( ${#remove[@]} )); then
+    dnf5 remove -y --no-autoremove "${remove[@]}"
+fi
+if (( ${#packages[@]} )); then
+    dnf5 install -y --setopt=install_weak_deps=False "${packages[@]}"
+fi
+
+# files/usr/share/example becomes /usr/share/example in the finished image.
+tar -C /files --exclude=.gitkeep -cf - . | tar -C / -xpf -
+install -Dm644 /custom/kernel-arguments.toml /usr/lib/bootc/kargs.d/90-personal.toml
+bash /custom/build.sh
+dnf5 clean all
+# Use the same build-state cleanup as AvethyOS; never run this on an installed OS.
+bash /usr/libexec/avethyos-image-cleanup
+bootc container lint --fatal-warnings
