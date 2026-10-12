@@ -35,7 +35,6 @@ fi
 tar -C /files --exclude=.gitkeep -cf - . | tar -C / -xpf -
 install -Dm644 /custom/kernel-arguments.toml /usr/lib/bootc/kargs.d/90-personal.toml
 bash /custom/build.sh
-dnf5 clean all
 # Use the same build-state cleanup as AvethyOS; never run this on an installed OS.
 bash /usr/libexec/avethyos-image-cleanup
 bootc container lint --fatal-warnings
