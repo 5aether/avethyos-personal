@@ -26,7 +26,10 @@ concurrency:
 jobs:
   check:
     name: Check my customization files
-    if: github.event_name != 'schedule' || vars.POLL_UPSTREAM != 'false'
+    if: >-
+      (github.event_name != 'schedule' ||
+       (github.repository != '5aether/avethyos' && github.repository != '5aether/avethyos-personal')) &&
+      (github.event_name != 'schedule' || vars.POLL_UPSTREAM != 'false')
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
