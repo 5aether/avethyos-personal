@@ -28,10 +28,8 @@ choices into your own image. You choose one graphics version; it never builds tw
    Keep exactly one `VARIANT=` line. A laptop with both integrated graphics and
    NVIDIA graphics should use `nvidia`.
 4. Open **Actions → Build my AvethyOS → Run workflow**. Leave **force** unchecked.
-   GitHub publishes your image, then automatically creates an installer ISO for
-   the one graphics version you chose. A green check means both are ready. Open
-   that run's summary to find your image's exact address, such as
-   `ghcr.io/yourname/avethyos-personal:latest`.
+   A green check means your image is ready. Open that run's summary to find its
+   exact address, such as `ghcr.io/yourname/avethyos-personal:latest`.
 
 The official `5aether/avethyos-personal` repository checks the template but never
 publishes a personal image. Only your repository's default branch publishes.
@@ -133,39 +131,6 @@ sudo bootc upgrade
 
 Reboot when you want to start the downloaded update.
 
-Background updates also download and prepare the next version. They never reboot
-your computer automatically; you choose when to restart. This applies to both
-graphics versions and your personal image.
-
-## Download an installer for a new computer
-
-After every successful personal image publication, the same workflow creates
-your installer automatically. It includes your packages, files and the graphics
-version in `image.conf`. You do not need to trigger a second workflow.
-
-Open the completed run under **Actions → Build my AvethyOS**. At the bottom,
-under **Artifacts**, download the file named after your image and graphics
-version, such as `my-image-standard-123456-1`. Extract the download to get the
-`.iso` installer and its `.iso.sha256` checksum. Write the ISO to a USB drive
-using a USB image writer, then boot that drive on the computer you want to install.
-The installer lets you choose the disk, account and password. Installing replaces
-the operating system on your selected disk, so save its important files first.
-
-Each installer contains the exact image that passed the build checks. Installed
-computers follow your image's `:latest` address for later updates. A failed image
-build or an unchanged five-minute check creates no installer. Artifacts are kept
-for 14 days; save your download if you need it longer. To recreate an expired
-installer, choose **Run workflow → force** to publish your image and build a new
-ISO.
-
-Private repositories keep their installer downloads private. Download credentials
-are used only on the temporary GitHub runner and are never included in the ISO.
-After installing a private image, run `avethyos image login YOURNAME` as described
-below so future system updates can download it.
-
-Advanced users can change installer defaults in `disk_config/iso.toml`. Your
-regular customization files still control the installed operating system.
-
 ## Private repositories and private images
 
 The GitHub workflow uses its own short-lived `GITHUB_TOKEN` to publish to GHCR,
@@ -236,7 +201,7 @@ run the same checks locally without building or changing your operating system:
 ```bash
 python3 -B -m unittest discover -s tests -v
 python3 -B -c 'from scripts.upstream import configuration, check_customization; configuration(); check_customization()'
-bash -n customize.sh build.sh scripts/build-iso.sh
+bash -n customize.sh build.sh
 ```
 
 ## Optional signing
