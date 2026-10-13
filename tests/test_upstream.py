@@ -134,14 +134,30 @@ class UpstreamGateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'Cannot inspect'):
             upstream.inspect('ghcr.io/upstream/missing', '/tmp/test-auth.json', runner=runner)
 
-    def test_official_repository_never_builds_template(self):
-        for repository in (upstream.UPSTREAM, upstream.TEMPLATE, upstream.TEMPLATE.upper()):
+    def test_main_os_repository_never_builds_personal_image(self):
+        for repository in (upstream.UPSTREAM, upstream.UPSTREAM.upper()):
             with self.subTest(repository=repository), \
                     patch.dict(os.environ, {'GITHUB_REPOSITORY': repository}, clear=True), \
                     patch.object(upstream, 'output') as output, patch.object(upstream, 'api') as api:
                 upstream.main()
                 output.assert_called_once_with({'build': 'false'})
                 api.assert_not_called()
+
+    def test_separate_personal_repository_builds_its_customization(self):
+        environment = {'GITHUB_REPOSITORY': '5aether/avethyos-personal',
+                       'GITHUB_REPOSITORY_OWNER': '5aether', 'GITHUB_EVENT_NAME': 'push',
+                       'GITHUB_SHA': SHA, 'REGISTRY_AUTH_FILE': '/tmp/test-auth.json'}
+        with patch.dict(os.environ, environment, clear=True), \
+                patch.object(upstream, 'configuration', return_value={'VARIANT': 'standard', 'IMAGE_NAME': 'avethyos-personal'}), \
+                patch.object(upstream, 'check_customization'), \
+                patch.object(upstream, 'latest_successful_run', return_value=RUN), \
+                patch.object(upstream, 'verify_publication') as verify, \
+                patch.object(upstream, 'inspect', side_effect=[BASE, None]), \
+                patch.object(upstream, 'output') as output:
+            upstream.main()
+            verify.assert_called_once_with(RUN)
+            self.assertEqual(output.call_args.args[0]['build'], 'true')
+            self.assertEqual(output.call_args.args[0]['image'], 'ghcr.io/5aether/avethyos-personal')
 
     def test_delayed_dispatch_does_not_roll_back_a_newer_release(self):
         latest = dict(RUN, id=43, run_number=11)
@@ -191,6 +207,8 @@ class TemplateConfigurationTests(unittest.TestCase):
                 os.chdir(directory)
                 Path('packages.txt').write_text('gimp\n# comment\n')
                 Path('remove-packages.txt').write_text('')
+                Path('flatpak-packages.txt').write_text('')
+                Path('remove-flatpak-packages.txt').write_text('')
                 Path('kernel-arguments.toml').write_text('kargs = ["hid_apple.fnmode=2"]\n')
                 Path('build.sh').write_text('touch hook-was-executed\n')
                 upstream.check_customization()

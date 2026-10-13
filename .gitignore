@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 *.key
 auth.json
+output/
+_build-iso.*/

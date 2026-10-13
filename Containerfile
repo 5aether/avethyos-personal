@@ -1,7 +1,8 @@
 # The workflow supplies a verified, successful AvethyOS release by digest.
 ARG BASE_IMAGE
 FROM scratch AS customization
-COPY packages.txt remove-packages.txt kernel-arguments.toml build.sh customize.sh /custom/
+COPY packages.txt remove-packages.txt flatpak-packages.txt remove-flatpak-packages.txt kernel-arguments.toml build.sh customize.sh /custom/
+COPY scripts/flatpaks.py /custom/
 COPY files /files
 
 FROM ${BASE_IMAGE}

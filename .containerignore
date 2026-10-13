@@ -1,6 +1,5 @@
 .git
 .github
-scripts
 tests
 disk_config
 README.md
@@ -9,3 +8,5 @@ LICENSE
 **/*.pyc
 *.key
 auth.json
+output
+_build-iso.*

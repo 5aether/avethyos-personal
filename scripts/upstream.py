@@ -11,7 +11,6 @@ import tomllib
 import urllib.request
 
 UPSTREAM = '5aether/avethyos'
-TEMPLATE = '5aether/avethyos-personal'
 WORKFLOW = '.github/workflows/build.yml'
 WORKFLOW_NAME = 'Build and verify AvethyOS'
 BASE_IMAGE = 'ghcr.io/5aether/avethyos'
@@ -41,6 +40,8 @@ def check_customization():
             package = line.split('#', 1)[0].strip()
             if package and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+:-]*', package):
                 raise ValueError(f'{name}: put one package name on each line.')
+    subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('flatpaks.py')),
+                    'check', str(Path.cwd())], check=True)
     with Path('kernel-arguments.toml').open('rb') as stream:
         settings = tomllib.load(stream)
     if 'kargs' not in settings:
@@ -147,7 +148,7 @@ def output(values):
 
 
 def main():
-    if os.environ.get('GITHUB_REPOSITORY', '').lower() in (UPSTREAM, TEMPLATE):
+    if os.environ.get('GITHUB_REPOSITORY', '').lower() == UPSTREAM:
         output({'build': 'false'})
         return
     config = configuration()

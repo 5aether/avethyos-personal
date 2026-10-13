@@ -1,0 +1,30 @@
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "20 GiB"
+
+[customizations.iso]
+volume_id = "AvethyOS"
+
+# Keep the installer interactive. Image Builder includes its payload setup
+# automatically; choose your disk, account and password before installing.
+# Without custom Kickstart content, its default installer clears disks and
+# reboots automatically. Leave partitioning and reboot commands out of here.
+[customizations.installer.kickstart]
+contents = """
+graphical
+"""
+
+[customizations.installer.modules]
+enable = [
+  "org.fedoraproject.Anaconda.Modules.Localization",
+  "org.fedoraproject.Anaconda.Modules.Storage",
+  "org.fedoraproject.Anaconda.Modules.Runtime",
+  "org.fedoraproject.Anaconda.Modules.Network",
+  "org.fedoraproject.Anaconda.Modules.Security",
+  "org.fedoraproject.Anaconda.Modules.Services",
+  "org.fedoraproject.Anaconda.Modules.Users",
+  "org.fedoraproject.Anaconda.Modules.Timezone"
+]
+disable = [
+  "org.fedoraproject.Anaconda.Modules.Subscription"
+]

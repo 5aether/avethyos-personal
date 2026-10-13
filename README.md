@@ -27,13 +27,22 @@ choices into your own image. You choose one graphics version; it never builds tw
 
    Keep exactly one `VARIANT=` line. A laptop with both integrated graphics and
    NVIDIA graphics should use `nvidia`.
-4. Open **Actions → Build my AvethyOS → Run workflow**. Leave **force** unchecked.
-   A green check means your image is ready. Open that run's summary to find its
-   exact address, such as `ghcr.io/yourname/avethyos-personal:latest`.
+4. Saving your changes on your fork's default branch starts the build. Open
+   **Actions → Build my AvethyOS** to follow it. A green check means your image
+   and installer are ready. Open that run's summary to find its exact address,
+   such as `ghcr.io/yourname/avethyos-personal:latest`. To build again without
+   changing files, use **Run workflow** and select **force**.
 
-The official `5aether/avethyos-personal` repository checks the template but never
-publishes a personal image. Only your repository's default branch publishes.
+`IMAGE_NAME` is only the short package name: `avethyos-personal`. Do not put
+`ghcr.io/yourname/avethyos-personal` in that setting. The workflow adds your GitHub
+owner name and the `ghcr.io/` prefix automatically.
+
+The separate `5aether/avethyos-personal` repository builds its own image and ISO,
+and forks build theirs in their own namespace. Only the default branch publishes.
 Your fork includes the build workflow; you do not need the main AvethyOS sources.
+Edit files in the repository whose image you use. A fork has its own files;
+changing the source repository does
+not automatically change an existing fork.
 
 ## Or clone into a new repository, including a private one
 
@@ -57,7 +66,7 @@ Keep `main` as the default branch, enable Actions, and follow steps 3–4 above.
 Your editable files are directly at the repository's root. No special branch,
 extra folder or source-code copy is needed.
 
-## Add packages
+## Add Fedora packages
 
 Edit `packages.txt` and write one Fedora package name on each line:
 
@@ -73,7 +82,49 @@ packages you want to remove. Leave it empty to keep all existing features.
 
 Removing a name from `packages.txt` removes your added package on the next build;
 each build starts again from AvethyOS. Software installed separately through
-Flatpak, Homebrew or Distrobox remains separately managed.
+Homebrew or Distrobox remains separately managed. Flatpak choices have their own
+files, explained below.
+
+## Add or remove Flatpak apps
+
+Edit `flatpak-packages.txt` and put one **Application ID** on each line. Find the
+ID on the application's page at [Flathub](https://flathub.org). For example:
+
+```text
+# Web browser:
+org.mozilla.firefox
+# Video player:
+org.videolan.VLC
+```
+
+Use the ID, not the app's display name or a terminal command. Empty lines and
+comments starting with `#` are ignored. Apps use Flathub's stable release.
+Save the file with **Commit changes** on your default branch. This starts your
+image build and, after it succeeds, your installer ISO build.
+
+The build includes these apps and their dependencies in the image's offline
+cache. They are installed for everyone on the first boot of a new installation,
+and new choices are applied on the next boot after a system update. They appear
+in Quickshell's app launcher. App updates remain available through Bazaar or
+`flatpak update`.
+
+To remove an app supplied by AvethyOS, put its ID in
+`remove-flatpak-packages.txt`. For example:
+
+```text
+# Remove the permissions editor supplied by AvethyOS:
+com.github.tchx84.Flatseal
+```
+
+Removing a name from `flatpak-packages.txt` also removes that previously
+image-provided app after your next update and boot. Apps you installed separately
+and their saved data remain under your control. Removing an app does not delete
+its saved data. Leave both files empty to keep AvethyOS's original apps.
+
+If you uninstall an image-provided app yourself, Flatpak remembers your choice
+and does not reinstall it on every boot. You can reinstall it in Bazaar whenever
+you want. This uses Flatpak's supported
+[operating system app defaults](https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-preinstall).
 
 ## Change kernel settings
 
@@ -113,6 +164,25 @@ systemctl enable my-service.service
 Your image keeps AvethyOS's existing layers and adds a small customization layer.
 There is no second full distribution build or separate NVIDIA build.
 
+## Download your installer ISO
+
+Each successful new image build automatically creates an installer for exactly
+the graphics version in `image.conf`. The installer contains your packages,
+kernel settings and copied files from that same build. It follows your own
+`:latest` image for future updates.
+
+Open **Actions → Build my AvethyOS**, select the completed run, and scroll to
+**Artifacts**. Download the item named after your image and graphics version.
+Unzip it to get the `.iso` file and its `.iso.sha256` checksum. Write the ISO to
+a USB drive using Fedora Media Writer, then boot the USB and choose your disk,
+account and password in the installer. The installer leaves these choices to you.
+
+Artifacts stay available for 14 days. Use **Run workflow → force** to create a
+fresh image and installer when an old download expires. A failed image build
+or an unchanged upstream check creates no ISO. Private repository downloads
+require access to that repository; registry credentials are never included in
+the ISO.
+
 ## Use your image on an AvethyOS computer
 
 After the first green build, replace the example address with the one in your
@@ -129,7 +199,8 @@ remain in place. Future system updates use your own image:
 sudo bootc upgrade
 ```
 
-Reboot when you want to start the downloaded update.
+Reboot when you want to start the downloaded update. AvethyOS stages automatic
+updates quietly and does not restart your computer for you.
 
 ## Private repositories and private images
 
@@ -201,7 +272,7 @@ run the same checks locally without building or changing your operating system:
 ```bash
 python3 -B -m unittest discover -s tests -v
 python3 -B -c 'from scripts.upstream import configuration, check_customization; configuration(); check_customization()'
-bash -n customize.sh build.sh
+bash -n customize.sh build.sh scripts/build-iso.sh
 ```
 
 ## Optional signing

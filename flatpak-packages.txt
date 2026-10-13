@@ -1,0 +1,6 @@
+# Add Flathub application IDs here, one per line. Save the file to rebuild.
+# Find the Application ID on the app's page at https://flathub.org.
+# Empty lines and comments are ignored. Apps use the stable release.
+# Example: remove the # below to include the app in your image.
+# org.mozilla.firefox
+# org.videolan.VLC

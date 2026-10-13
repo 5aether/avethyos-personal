@@ -1,0 +1,5 @@
+# Optional: remove image-provided Flatpak apps, one application ID per line.
+# Apps you installed separately and their saved data stay under your control.
+# Leave this empty to keep every AvethyOS feature.
+# Example: remove the # below if you do not want the permissions editor.
+# com.github.tchx84.Flatseal

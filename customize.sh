@@ -31,6 +31,10 @@ if (( ${#packages[@]} )); then
     dnf5 install -y --setopt=install_weak_deps=False "${packages[@]}"
 fi
 
+# Flatpak's native preinstall service applies these choices on new installs and
+# after OS updates, while preserving apps that users install or uninstall.
+python3 -B /custom/flatpaks.py build /custom
+
 # files/usr/share/example becomes /usr/share/example in the finished image.
 tar -C /files --exclude=.gitkeep -cf - . | tar -C / -xpf -
 install -Dm644 /custom/kernel-arguments.toml /usr/lib/bootc/kargs.d/90-personal.toml
