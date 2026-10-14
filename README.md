@@ -80,6 +80,10 @@ Save the file on your default branch. GitHub rebuilds automatically, using the
 latest successful AvethyOS release. `remove-packages.txt` works the same way for
 packages you want to remove. Leave it empty to keep all existing features.
 
+Packages such as Blueman need a folder for their saved settings. The build adds
+the required startup rules automatically when these packages are installed, so
+their folders also exist after system updates. Existing saved settings are kept.
+
 Removing a name from `packages.txt` removes your added package on the next build;
 each build starts again from AvethyOS. Software installed separately through
 Homebrew or Distrobox remains separately managed. Flatpak choices have their own
@@ -279,7 +283,7 @@ run the same checks locally without building or changing your operating system:
 ```bash
 python3 -B -m unittest discover -s tests -v
 python3 -B -c 'from scripts.upstream import configuration, check_customization; configuration(); check_customization()'
-bash -n customize.sh build.sh scripts/build-iso.sh
+bash -n customize.sh build.sh scripts/build-iso.sh scripts/rpm-state.sh tests/check-rpm-state.sh
 ```
 
 ## Optional signing

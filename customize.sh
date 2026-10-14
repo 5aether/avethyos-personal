@@ -39,6 +39,8 @@ python3 -B /custom/flatpaks.py build /custom
 tar -C /files --exclude=.gitkeep -cf - . | tar -C / -xpf -
 install -Dm644 /custom/kernel-arguments.toml /usr/lib/bootc/kargs.d/90-personal.toml
 bash /custom/build.sh
+# Add native startup rules for installed RPMs that omit them upstream.
+bash /custom/rpm-state.sh
 # Use the same build-state cleanup as AvethyOS; never run this on an installed OS.
 bash /usr/libexec/avethyos-image-cleanup
 bootc container lint --fatal-warnings

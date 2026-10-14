@@ -42,7 +42,7 @@ jobs:
           python3 -B -m unittest discover -s tests -v
           python3 -B -c 'from scripts.upstream import configuration, check_customization; configuration(); check_customization()'
           python3 -B -c 'from scripts.upstream import api; api("actions/workflows/build.yml/runs?branch=main&per_page=1"); print("Public upstream release API is accessible.")'
-          bash -n customize.sh build.sh scripts/build-iso.sh
+          bash -n customize.sh build.sh scripts/build-iso.sh scripts/rpm-state.sh tests/check-rpm-state.sh
           python3 -B -c 'import tomllib; tomllib.load(open("disk_config/iso.toml", "rb"))'
 
   build:
@@ -101,9 +101,11 @@ jobs:
           set -euo pipefail
           # Flatpak's nested sandbox writes limits in its own user namespace.
           # Keep only these namespaced sysctls writable during the image build.
-          podman build --authfile "$REGISTRY_AUTH_FILE" --pull=always \
-            --volume /proc/sys/user:/proc/sys/user:rw \
-            --build-arg "BASE_IMAGE=$BASE_IMAGE" --target flatpak-check .
+          for target in rpm-state-check flatpak-check; do
+            podman build --authfile "$REGISTRY_AUTH_FILE" --pull=always \
+              --volume /proc/sys/user:/proc/sys/user:rw \
+              --build-arg "BASE_IMAGE=$BASE_IMAGE" --target "$target" .
+          done
           podman build --authfile "$REGISTRY_AUTH_FILE" --pull=always --layers \
             --volume /proc/sys/user:/proc/sys/user:rw \
             --build-arg "BASE_IMAGE=$BASE_IMAGE" \

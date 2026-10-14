@@ -3,7 +3,18 @@ ARG BASE_IMAGE
 FROM scratch AS customization
 COPY packages.txt remove-packages.txt flatpak-packages.txt remove-flatpak-packages.txt kernel-arguments.toml build.sh customize.sh /custom/
 COPY scripts/flatpaks.py /custom/
+COPY scripts/rpm-state.sh /custom/
+COPY tmpfiles.d /custom/tmpfiles.d
 COPY files /files
+
+# Check an RPM whose state directory needs an additional native startup rule.
+FROM ${BASE_IMAGE} AS rpm-state-check
+COPY scripts/rpm-state.sh /custom/
+COPY tmpfiles.d /custom/tmpfiles.d
+COPY tests/check-rpm-state.sh /checks/check-rpm-state.sh
+RUN dnf5 install -y --setopt=install_weak_deps=False blueman && \
+    bash /custom/rpm-state.sh && bash /checks/check-rpm-state.sh && \
+    bash /usr/libexec/avethyos-image-cleanup && bootc container lint --fatal-warnings
 
 # CI verifies actual extra-data installation and first-boot defaults, even when
 # the user's package lists are empty. This test stage is not part of the image.

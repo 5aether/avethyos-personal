@@ -2,6 +2,7 @@
 .github
 tests/*
 !tests/test_flatpak_extra_data.py
+!tests/check-rpm-state.sh
 disk_config
 README.md
 LICENSE
