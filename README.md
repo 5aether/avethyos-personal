@@ -102,11 +102,18 @@ comments starting with `#` are ignored. Apps use Flathub's stable release.
 Save the file with **Commit changes** on your default branch. This starts your
 image build and, after it succeeds, your installer ISO build.
 
-The build includes these apps and their dependencies in the image's offline
-cache. They are installed for everyone on the first boot of a new installation,
-and new choices are applied on the next boot after a system update. They appear
-in Quickshell's app launcher. App updates remain available through Bazaar or
-`flatpak update`.
+The build checks that these apps install successfully and includes apps and
+dependencies that Flatpak supports in the image's offline cache. Some apps,
+including Spotify, download extra files from their publisher. Flatpak cannot
+export these apps offline: they need an internet connection for their first
+installation. The build detects them automatically; keep their IDs in the same
+list. [Flatpak's offline export rules](https://github.com/flatpak/flatpak/blob/main/app/flatpak-builtins-create-usb.c)
+explain this restriction.
+
+Apps are installed for everyone on the first boot of a new installation, and
+new choices are applied on the next boot after a system update. Connect to the
+internet for apps that need publisher downloads. They appear in Quickshell's
+app launcher. App updates remain available through Bazaar or `flatpak update`.
 
 To remove an app supplied by AvethyOS, put its ID in
 `remove-flatpak-packages.txt`. For example:

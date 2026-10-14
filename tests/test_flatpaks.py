@@ -100,11 +100,12 @@ class FlatpakListTests(unittest.TestCase):
             self.assertTrue(config.exists())
             self.assertNotIn('/var/lib/flatpak', config.read_text())
             self.assertIn(str(root / 'var/tmp'), config.read_text())
-            return subprocess.CompletedProcess(command, 0)
+            return subprocess.CompletedProcess(command, 0, stdout='[Application]\nname=org.mozilla.firefox\n')
 
         flatpaks.build(self.directory, root=root, runner=runner)
+        self.assertEqual(calls[0][0], 'bwrap')
         self.assertTrue(all(command[:2] == ['flatpak', '--installation=avethyos-personal-build']
-                            for command in calls))
+                            for command in calls[1:]))
         install = next(command for command in calls if 'install' in command)
         self.assertEqual(install[-2:], ['flathub', 'org.mozilla.firefox//stable'])
         self.assertIn(f'--sideload-repo={parent_seed.parent}', install)
@@ -133,6 +134,58 @@ class FlatpakListTests(unittest.TestCase):
             flatpaks.build(self.directory, root=root, runner=runner, pause=pauses.append)
         self.assertEqual(len(failures), 5)
         self.assertEqual(pauses, [10, 20, 30, 40])
+        self.assertFalse((root / f'etc/flatpak/installations.d/{flatpaks.INSTALLATION}.conf').exists())
+        self.assertEqual(list((root / 'var/tmp').iterdir()), [])
+
+    def test_extra_data_requires_a_source_uri(self):
+        self.assertFalse(flatpaks.has_extra_data('[Application]\nuri=https://example.invalid\n'))
+        self.assertFalse(flatpaks.has_extra_data('[Extra Data]\nNoRuntime=true\n'))
+        self.assertFalse(flatpaks.has_extra_data('[Extra Data]\nuri=\n'))
+        self.assertTrue(flatpaks.has_extra_data('[Extra Data]\nuri=https://example.invalid/extra\n'))
+        self.assertTrue(flatpaks.has_extra_data('[Extra Data]\nuri0=https://example.invalid/one\n'
+                                              'uri1=https://example.invalid/two\n'))
+
+    def test_extra_data_apps_keep_defaults_and_do_not_break_offline_exports(self):
+        for apps in ('com.spotify.Client\norg.mozilla.firefox', 'com.spotify.Client'):
+            with self.subTest(apps=apps):
+                (self.directory / flatpaks.LISTS[0]).write_text(apps)
+                root = self.directory / 'image'
+                calls = []
+
+                def runner(command, **kwargs):
+                    calls.append(command)
+                    metadata = ('[Extra Data]\nuri=https://example.invalid/extra\n'
+                                if command[-1] == 'com.spotify.Client//stable' else '[Application]\n')
+                    return subprocess.CompletedProcess(command, 0, stdout=metadata)
+
+                flatpaks.build(self.directory, root=root, runner=runner)
+                install = next(command for command in calls if 'install' in command)
+                self.assertIn('com.spotify.Client//stable', install)
+                defaults = (root / flatpaks.PREINSTALL).read_text()
+                self.assertIn('[Flatpak Preinstall com.spotify.Client]', defaults)
+                self.assertIn('Install=true', defaults)
+                exports = [command for command in calls if 'create-usb' in command]
+                if 'org.mozilla.firefox' in apps:
+                    self.assertEqual(len(exports), 1)
+                    self.assertEqual(exports[0][-1], 'org.mozilla.firefox//stable')
+                    self.assertNotIn('com.spotify.Client//stable', exports[0])
+                else:
+                    self.assertEqual(exports, [])
+
+    def test_sandbox_failure_is_not_retried_as_a_download(self):
+        (self.directory / flatpaks.LISTS[0]).write_text('com.spotify.Client')
+        root = self.directory / 'image'
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append(command)
+            raise subprocess.CalledProcessError(1, command)
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            flatpaks.build(self.directory, root=root, runner=runner,
+                          pause=lambda seconds: self.fail('A sandbox failure cannot be fixed by retrying.'))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], 'bwrap')
         self.assertFalse((root / f'etc/flatpak/installations.d/{flatpaks.INSTALLATION}.conf').exists())
         self.assertEqual(list((root / 'var/tmp').iterdir()), [])
 

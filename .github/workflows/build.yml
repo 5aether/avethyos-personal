@@ -99,7 +99,13 @@ jobs:
           VARIANT: ${{ steps.upstream.outputs.variant }}
         run: |
           set -euo pipefail
+          # Flatpak's nested sandbox writes limits in its own user namespace.
+          # Keep only these namespaced sysctls writable during the image build.
+          podman build --authfile "$REGISTRY_AUTH_FILE" --pull=always \
+            --volume /proc/sys/user:/proc/sys/user:rw \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" --target flatpak-check .
           podman build --authfile "$REGISTRY_AUTH_FILE" --pull=always --layers \
+            --volume /proc/sys/user:/proc/sys/user:rw \
             --build-arg "BASE_IMAGE=$BASE_IMAGE" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \

@@ -70,6 +70,15 @@ def write_defaults(added, removed, directory):
     target.chmod(0o644)
 
 
+def has_extra_data(metadata):
+    config = configparser.ConfigParser(interpolation=None, strict=False)
+    config.optionxform = str
+    config.read_string(metadata)
+    # Flatpak builds xa.extra-data-sources from the URI keys in this group.
+    return (config.has_section('Extra Data') and
+            any(key.startswith('uri') and value for key, value in config['Extra Data'].items()))
+
+
 def build(directory, root=Path('/'), runner=subprocess.run, pause=time.sleep):
     added, removed = read_lists(directory)
     write_defaults(added, removed, (root / PREINSTALL).parent)
@@ -94,6 +103,12 @@ def build(directory, root=Path('/'), runner=subprocess.run, pause=time.sleep):
                           'DisplayName=AvethyOS personal image build\n')
         config.chmod(0o644)
         try:
+            # Match the nested sandbox used by Flatpak's apply_extra. Fail before
+            # large downloads if the builder cannot support it. The workflow's
+            # writable /proc/sys/user mount lets bwrap restrict its own user
+            # namespace; neither host limits nor the app sandbox are changed.
+            runner(['bwrap', '--unshare-user', '--unshare-pid', '--disable-userns',
+                    '--ro-bind', '/', '/', '--dev', '/dev', '/bin/true'], env=env, check=True)
             prefix = ['flatpak', f'--installation={INSTALLATION}']
             runner([*prefix, 'remote-add', '--if-not-exists', '--from', 'flathub',
                     str(root / 'usr/share/flatpak/remotes.d/flathub.flatpakrepo')], env=env, check=True)
@@ -111,12 +126,23 @@ def build(directory, root=Path('/'), runner=subprocess.run, pause=time.sleep):
                 except subprocess.CalledProcessError:
                     if attempt == 5:
                         raise
-                    print(f'Flatpak download failed; retrying ({attempt + 1}/5)...', file=sys.stderr)
+                    print(f'Flatpak installation failed; retrying ({attempt + 1}/5)...', file=sys.stderr)
                     pause(attempt * 10)
-            # create-usb extends the inherited repository, retaining AvethyOS's
-            # existing app/runtime refs and adding all dependencies of our apps.
-            seed.mkdir(parents=True, exist_ok=True)
-            runner([*prefix, 'create-usb', '--app', str(seed), *refs], env=env, check=True)
+            offline = []
+            for ref in refs:
+                metadata = runner([*prefix, 'info', '--show-metadata', ref], env=env,
+                                  check=True, text=True, stdout=subprocess.PIPE).stdout
+                if has_extra_data(metadata):
+                    print(f'{ref}: Flatpak requires an online first-boot installation '
+                          '(extra data cannot be exported offline).', flush=True)
+                else:
+                    offline.append(ref)
+            # Native create-usb retains inherited refs and includes dependencies,
+            # excluding extra-data extensions itself. Direct extra-data apps are
+            # unsupported by create-usb; their preinstall defaults stay enabled.
+            if offline:
+                seed.mkdir(parents=True, exist_ok=True)
+                runner([*prefix, 'create-usb', '--app', str(seed), *offline], env=env, check=True)
         finally:
             config.unlink(missing_ok=True)
 
